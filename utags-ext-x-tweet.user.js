@@ -4,9 +4,9 @@
 // @namespace            https://github.com/hanzhsun/utags-extension
 // @homepageURL          https://github.com/hanzhsun/utags-extension#readme
 // @supportURL           https://github.com/hanzhsun/utags-extension/issues
-// @version              0.1
-// @description          Enable UTags on individual X (Twitter) tweets via the views button.
-// @description:zh-CN    通过浏览量按钮为 X (Twitter) 单条推文启用 UTags 标签。
+// @version              0.1.1
+// @description          Enable UTags on individual X (Twitter) tweets via the repost button.
+// @description:zh-CN    通过转帖按钮为 X (Twitter) 单条推文启用 UTags 标签。
 // @icon                 data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23ff6361' class='bi bi-tags-fill' viewBox='0 0 16 16'%3E %3Cpath d='M2 2a1 1 0 0 1 1-1h4.586a1 1 0 0 1 .707.293l7 7a1 1 0 0 1 0 1.414l-4.586 4.586a1 1 0 0 1-1.414 0l-7-7A1 1 0 0 1 2 6.586V2zm3.5 4a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z'/%3E %3Cpath d='M1.293 7.793A1 1 0 0 1 1 7.086V2a1 1 0 0 0-1 1v4.586a1 1 0 0 0 .293.707l7 7a1 1 0 0 0 1.414 0l.043-.043-7.457-7.457z'/%3E %3C/svg%3E
 // @author               hanzhsun
 // @license              MIT
@@ -99,37 +99,31 @@
     return match ? 'Tweet ' + match[1] : 'Tweet'
   }
 
-  function findViewButton(article) {
-    const analytics = article.querySelector('a[href*="/analytics"]')
-    if (analytics) {
-      return analytics
-    }
-    const byTestId =
-      article.querySelector('[data-testid="viewCount"]') ||
-      article.querySelector('[data-testid="impressions"]')
-    if (byTestId) {
-      return byTestId
-    }
-    for (const el of article.querySelectorAll(
-      'a[aria-label],button[aria-label],div[aria-label],span[aria-label]'
-    )) {
-      const label = (el.getAttribute('aria-label') || '').toLowerCase()
-      if (
-        label.includes('view') ||
-        label.includes('查看') ||
-        label.includes('次浏览') ||
-        label.includes('浏览量')
-      ) {
-        return el
-      }
-    }
-    return null
+  // Repost button is always in the tweet action bar (reposted or not).
+  function findRepostButton(article) {
+    return (
+      article.querySelector('[data-testid="retweet"]') ||
+      article.querySelector('[data-testid="unretweet"]')
+    )
   }
 
-  function clearOldMarkers(article) {
+  function clearPostMarkers(article, keep) {
     for (const old of article.querySelectorAll(
-      '[data-testid="share"][data-utags_link],[data-testid="bookmark"][data-utags_link],[data-testid="removeBookmark"][data-utags_link]'
+      [
+        '[data-utags_type="post"][data-utags_link]',
+        '[data-testid="like"][data-utags_link]',
+        '[data-testid="unlike"][data-utags_link]',
+        '[data-testid="share"][data-utags_link]',
+        '[data-testid="bookmark"][data-utags_link]',
+        '[data-testid="removeBookmark"][data-utags_link]',
+        'a[href*="/analytics"][data-utags_link]',
+        '[data-testid="viewCount"][data-utags_link]',
+        '[data-testid="impressions"][data-utags_link]',
+      ].join(',')
     )) {
+      if (old === keep) {
+        continue
+      }
       delete old.dataset.utags_link
       delete old.dataset.utags_title
       delete old.dataset.utags_type
@@ -150,23 +144,22 @@
         continue
       }
 
-      clearOldMarkers(article)
-
-      const viewButton = findViewButton(article)
-      if (!viewButton) {
+      const repostButton = findRepostButton(article)
+      clearPostMarkers(article, repostButton)
+      if (!repostButton) {
         continue
       }
 
       const title = getTweetTitle(article, key)
 
-      if (viewButton.dataset.utags_link !== key) {
-        viewButton.dataset.utags_link = key
+      if (repostButton.dataset.utags_link !== key) {
+        repostButton.dataset.utags_link = key
       }
-      if (viewButton.dataset.utags_title !== title) {
-        viewButton.dataset.utags_title = title
+      if (repostButton.dataset.utags_title !== title) {
+        repostButton.dataset.utags_title = title
       }
-      if (viewButton.dataset.utags_type !== 'post') {
-        viewButton.dataset.utags_type = 'post'
+      if (repostButton.dataset.utags_type !== 'post') {
+        repostButton.dataset.utags_type = 'post'
       }
     }
   }
