@@ -33,9 +33,10 @@
     '[class*="Frame_side"]',
     '[class*="Frame_right"]',
     '[class*="Home_right"]',
+    'aside',
+    '.m-main-l',
+    '.m-main-r',
   ]
-
-  const GROUP_NAV_LABELS = ['全部关注', '最新微博', '特别关注', '好友圈']
 
   const RESERVED_FIRST = new Set([
     'u',
@@ -245,63 +246,96 @@
     return match ? 'Weibo ' + match[1] : 'Weibo'
   }
 
-  function findAllByExactText(labels) {
-    const found = []
-    const xpath = labels
-      .map((label) => 'normalize-space(text())="' + label + '"')
-      .join(' or ')
-    const snap = document.evaluate(
-      './/*[' + xpath + ']',
-      document.body,
-      null,
-      XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
-      null
-    )
-    for (let i = 0; i < snap.snapshotLength; i++) {
-      found.push(snap.snapshotItem(i))
+  function markExcluded(el) {
+    if (el && el.dataset.utags_exclude === undefined) {
+      el.dataset.utags_exclude = ''
     }
-    return found
   }
 
-  function findHomeGroupNav() {
-    let best = null
-    let bestLen = Infinity
-    for (const start of findAllByExactText(GROUP_NAV_LABELS)) {
-      let node = start
-      for (let i = 0; i < 8 && node && node !== document.body; i++) {
-        const text = node.textContent || ''
-        const count = GROUP_NAV_LABELS.filter((label) =>
-          text.includes(label)
-        ).length
-        if (count >= 3 && text.length < 400) {
-          if (text.length < bestLen) {
-            best = node
-            bestLen = text.length
-          }
-          break
-        }
-        node = node.parentElement
-      }
+  function isHorizontalRow(el) {
+    const style = window.getComputedStyle(el)
+    if (style.display === 'grid') {
+      return true
     }
-    return best
+    if (style.display !== 'flex' && style.display !== 'inline-flex') {
+      return false
+    }
+    return !String(style.flexDirection).startsWith('column')
+  }
+
+  function isInsideSingleCard(el) {
+    const card = el.closest(
+      '[class*="Feed_wrap"], article.woo-panel-main, .card-wrap[action-type="feed_list_item"]'
+    )
+    if (!card) {
+      return false
+    }
+    return !card.querySelector(
+      '.vue-recycle-scroller, [class*="vue-recycle-scroller"]'
+    )
+  }
+
+  function findFeedAnchor() {
+    return (
+      document.querySelector(
+        '.vue-recycle-scroller, [class*="vue-recycle-scroller"]'
+      ) ||
+      document.querySelector('[class*="Detail_box"]') ||
+      document.querySelector('[class*="Feed_wrap"]') ||
+      document.querySelector('article.woo-panel-main') ||
+      document.querySelector('.card-wrap[action-type="feed_list_item"]')
+    )
+  }
+
+  // Exclude every column that sits beside the main feed, instead of
+  // matching individual sidebar menus by label.
+  function excludeSiblingColumnsOfFeed() {
+    const anchor = findFeedAnchor()
+    if (!anchor) {
+      return
+    }
+
+    let node = anchor
+    for (let i = 0; i < 14 && node && node.parentElement; i++) {
+      const parent = node.parentElement
+      if (parent === document.body || parent === document.documentElement) {
+        break
+      }
+      if (isInsideSingleCard(parent)) {
+        node = parent
+        continue
+      }
+      if (!isHorizontalRow(parent)) {
+        node = parent
+        continue
+      }
+
+      const siblings = [...parent.children].filter((child) => child !== node)
+      if (siblings.length === 0) {
+        node = parent
+        continue
+      }
+
+      for (const sib of siblings) {
+        if (sib.contains(anchor)) {
+          continue
+        }
+        if (sib.matches('script, style, link, meta, noscript')) {
+          continue
+        }
+        markExcluded(sib)
+      }
+      return
+    }
   }
 
   function excludeSidebars() {
-    const roots = new Set()
     for (const selector of SIDEBAR_SELECTORS) {
       for (const el of document.querySelectorAll(selector)) {
-        roots.add(el)
+        markExcluded(el)
       }
     }
-    const groupNav = findHomeGroupNav()
-    if (groupNav) {
-      roots.add(groupNav)
-    }
-    for (const root of roots) {
-      if (root.dataset.utags_exclude === undefined) {
-        root.dataset.utags_exclude = ''
-      }
-    }
+    excludeSiblingColumnsOfFeed()
   }
 
   function findToolbar(card) {

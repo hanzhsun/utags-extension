@@ -50,9 +50,9 @@
 
 - 扫描微博卡片（`article.woo-panel-main` / `Feed_wrap` / 搜索页 `card-wrap` 等），解析 key：`https://weibo.com/{uid}/{bid}`
 - 标签挂在整块**评论**按钮上（图标 +「评论」文字之后）
-- 写入 `data-utags_title`（帖文正文），收藏页可预览
+- 写入 `data-utags_title`（帖文正文），收藏页可预览；去掉「Translate content」等翻译模块文案
 - 忽略时间戳permalink，避免和评论图标重复出标
-- 排除左侧分组栏（全部关注 / 好友圈等）和左右侧栏，不在导航上打标
+- 按版面排除主栏两侧的整列侧栏（含分组栏、个人主页导航、热搜等），不按菜单逐项排除
 - 清理曾挂在赞 / 转发上的旧标记
 - MutationObserver 适配时间线；注入悬停显示样式
 
