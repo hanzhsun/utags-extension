@@ -4,9 +4,9 @@
 // @namespace            https://github.com/hanzhsun/utags-extension
 // @homepageURL          https://github.com/hanzhsun/utags-extension#readme
 // @supportURL           https://github.com/hanzhsun/utags-extension/issues
-// @version              0.1.1
-// @description          Enable UTags on individual X (Twitter) tweets via the repost button.
-// @description:zh-CN    通过转帖按钮为 X (Twitter) 单条推文启用 UTags 标签。
+// @version              0.1.2
+// @description          Enable UTags on individual X (Twitter) tweets via the repost button, and mark the first image as data-utags_cover.
+// @description:zh-CN    通过转帖按钮为 X (Twitter) 单条推文启用 UTags 标签，并把推文内第一张图记到 data-utags_cover。
 // @icon                 data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23ff6361' class='bi bi-tags-fill' viewBox='0 0 16 16'%3E %3Cpath d='M2 2a1 1 0 0 1 1-1h4.586a1 1 0 0 1 .707.293l7 7a1 1 0 0 1 0 1.414l-4.586 4.586a1 1 0 0 1-1.414 0l-7-7A1 1 0 0 1 2 6.586V2zm3.5 4a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z'/%3E %3Cpath d='M1.293 7.793A1 1 0 0 1 1 7.086V2a1 1 0 0 0-1 1v4.586a1 1 0 0 0 .293.707l7 7a1 1 0 0 0 1.414 0l.043-.043-7.457-7.457z'/%3E %3C/svg%3E
 // @author               hanzhsun
 // @license              MIT
@@ -127,7 +127,84 @@
       delete old.dataset.utags_link
       delete old.dataset.utags_title
       delete old.dataset.utags_type
+      delete old.dataset.utags_cover
     }
+  }
+
+  function absoluteHttpUrl(src) {
+    if (!src) {
+      return ''
+    }
+    const trimmed = String(src).trim()
+    if (
+      !trimmed ||
+      trimmed.startsWith('data:') ||
+      trimmed.startsWith('blob:')
+    ) {
+      return ''
+    }
+    try {
+      const url = new URL(trimmed, location.href)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return ''
+      }
+      return url.href
+    } catch {
+      return ''
+    }
+  }
+
+  function rawImageUrl(el) {
+    if (el.tagName === 'VIDEO') {
+      return el.getAttribute('poster') || ''
+    }
+    const src = el.getAttribute('src') || ''
+    if (src && !src.startsWith('blob:') && !src.startsWith('data:')) {
+      return src
+    }
+    const current = el.currentSrc || ''
+    if (current && !current.startsWith('blob:') && !current.startsWith('data:')) {
+      return current
+    }
+    return ''
+  }
+
+  function largerTweetImage(url) {
+    try {
+      const parsed = new URL(url)
+      if (!/(^|\.)twimg\.com$/i.test(parsed.hostname)) {
+        return url
+      }
+      if (parsed.searchParams.get('name')) {
+        parsed.searchParams.set('name', 'large')
+        return parsed.href
+      }
+      return url.replace(/:(small|thumb|medium|large|orig)$/i, ':large')
+    } catch {
+      return url
+    }
+  }
+
+  function getTweetCover(article) {
+    const selectors = [
+      '[data-testid="tweetPhoto"] img',
+      '[data-testid="tweetPhoto"] video[poster]',
+      '[data-testid="videoPlayer"] video[poster]',
+      '[data-testid="videoComponent"] video[poster]',
+      '[data-testid="card.layoutLarge.media"] img',
+      '[data-testid="card.layoutSmall.media"] img',
+      '[data-testid="card.wrapper"] img',
+    ]
+    for (const selector of selectors) {
+      for (const el of article.querySelectorAll(selector)) {
+        const url = largerTweetImage(absoluteHttpUrl(rawImageUrl(el)))
+        if (!url || /profile_images|emoji|abs\.twimg\.com/i.test(url)) {
+          continue
+        }
+        return url
+      }
+    }
+    return ''
   }
 
   function processTweets() {
@@ -160,6 +237,14 @@
       }
       if (repostButton.dataset.utags_type !== 'post') {
         repostButton.dataset.utags_type = 'post'
+      }
+      const cover = getTweetCover(article)
+      if (cover) {
+        if (repostButton.dataset.utags_cover !== cover) {
+          repostButton.dataset.utags_cover = cover
+        }
+      } else if (repostButton.dataset.utags_cover !== undefined) {
+        delete repostButton.dataset.utags_cover
       }
     }
   }

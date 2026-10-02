@@ -4,9 +4,9 @@
 // @namespace            https://github.com/hanzhsun/utags-extension
 // @homepageURL          https://github.com/hanzhsun/utags-extension#readme
 // @supportURL           https://github.com/hanzhsun/utags-extension/issues
-// @version              0.1
-// @description          Enable UTags on individual Weibo posts via the comment icon.
-// @description:zh-CN    通过评论图标为微博单条帖文启用 UTags 标签。
+// @version              0.1.2
+// @description          Enable UTags on individual Weibo posts via the comment icon, and mark the first image as data-utags_cover.
+// @description:zh-CN    通过评论图标为微博单条帖文启用 UTags 标签，并把帖文内第一张图记到 data-utags_cover。
 // @icon                 data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23ff6361' class='bi bi-tags-fill' viewBox='0 0 16 16'%3E %3Cpath d='M2 2a1 1 0 0 1 1-1h4.586a1 1 0 0 1 .707.293l7 7a1 1 0 0 1 0 1.414l-4.586 4.586a1 1 0 0 1-1.414 0l-7-7A1 1 0 0 1 2 6.586V2zm3.5 4a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z'/%3E %3Cpath d='M1.293 7.793A1 1 0 0 1 1 7.086V2a1 1 0 0 0-1 1v4.586a1 1 0 0 0 .293.707l7 7a1 1 0 0 0 1.414 0l.043-.043-7.457-7.457z'/%3E %3C/svg%3E
 // @author               hanzhsun
 // @license              MIT
@@ -560,10 +560,136 @@
       delete old.dataset.utags_link
       delete old.dataset.utags_title
       delete old.dataset.utags_type
+      delete old.dataset.utags_cover
     }
   }
 
-  function applyPostMarker(target, key, title) {
+  function absoluteHttpUrl(src) {
+    if (!src) {
+      return ''
+    }
+    const trimmed = String(src).trim()
+    if (
+      !trimmed ||
+      trimmed.startsWith('data:') ||
+      trimmed.startsWith('blob:')
+    ) {
+      return ''
+    }
+    try {
+      const url = new URL(trimmed, location.href)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return ''
+      }
+      return url.href
+    } catch {
+      return ''
+    }
+  }
+
+  function rawImageUrl(el) {
+    if (el.tagName === 'VIDEO') {
+      return el.getAttribute('poster') || ''
+    }
+    const lazy = el.getAttribute('data-src') || el.getAttribute('data-original')
+    if (lazy) {
+      return lazy
+    }
+    const src = el.getAttribute('src') || ''
+    if (src && !src.startsWith('blob:')) {
+      return src
+    }
+    return el.currentSrc || ''
+  }
+
+  function largerWeiboImage(url) {
+    return url.replace(
+      /^(https?:\/\/wx\d+\.sinaimg\.cn\/)(?:cmw\d+|mw\d+|orj\d+|thumb\d+|thumbnail|bmiddle|square|sq\d+|wap\d+|small|oslarge|large)(?=\/)/i,
+      '$1large'
+    )
+  }
+
+  function isJunkWeiboImage(url) {
+    if (/:\/\/tvax?\d+\.sinaimg\.cn\//i.test(url) || /\/crop\.\d/i.test(url)) {
+      return true
+    }
+    return /expression|\/emoji\/|face\.t\.sinajs|img\.t\.sinajs|timeline_card_small_web_default/i.test(
+      url
+    )
+  }
+
+  function isAvatarOrIcon(el) {
+    let node = el
+    for (let i = 0; i < 4 && node; i++) {
+      const className = typeof node.className === 'string' ? node.className : ''
+      if (/avatar|avator|woo-avatar/i.test(className)) {
+        return true
+      }
+      node = node.parentElement
+    }
+    return false
+  }
+
+  function isInToolbar(el, card) {
+    const bar = el.closest('[class*="toolbar"], .card-act, .m-auto-box')
+    return Boolean(bar && card.contains(bar))
+  }
+
+  function isTinyImage(el) {
+    if (el.tagName === 'VIDEO') {
+      return false
+    }
+    const width = el.naturalWidth || Number(el.getAttribute('width')) || 0
+    const height = el.naturalHeight || Number(el.getAttribute('height')) || 0
+    return width > 0 && height > 0 && width < 48 && height < 48
+  }
+
+  function isInsideComment(el, card) {
+    const comment = el.closest(
+      '[class*="Comment_"], .card-comment, [class*="commentlist"], [class*="RepostComment"]'
+    )
+    return Boolean(comment && card.contains(comment))
+  }
+
+  function firstCoverIn(root, card, skipNested) {
+    for (const el of root.querySelectorAll('img, video[poster]')) {
+      if (skipNested && isInsideNested(el, card)) {
+        continue
+      }
+      if (
+        isInsideComment(el, card) ||
+        isInToolbar(el, card) ||
+        isAvatarOrIcon(el) ||
+        isTinyImage(el)
+      ) {
+        continue
+      }
+      const url = largerWeiboImage(absoluteHttpUrl(rawImageUrl(el)))
+      if (!url || isJunkWeiboImage(url)) {
+        continue
+      }
+      return url
+    }
+    return ''
+  }
+
+  function getPostCover(card) {
+    const own = firstCoverIn(card, card, true)
+    if (own) {
+      return own
+    }
+    for (const quote of card.querySelectorAll(
+      '[class*="Feed_retweet"], .retweet'
+    )) {
+      const quoted = firstCoverIn(quote, card, false)
+      if (quoted) {
+        return quoted
+      }
+    }
+    return ''
+  }
+
+  function applyPostMarker(target, key, title, cover) {
     if (target.dataset.utags_link !== key) {
       target.dataset.utags_link = key
     }
@@ -572,6 +698,13 @@
     }
     if (target.dataset.utags_type !== 'post') {
       target.dataset.utags_type = 'post'
+    }
+    if (cover) {
+      if (target.dataset.utags_cover !== cover) {
+        target.dataset.utags_cover = cover
+      }
+    } else if (target.dataset.utags_cover !== undefined) {
+      delete target.dataset.utags_cover
     }
   }
 
@@ -600,7 +733,12 @@
         continue
       }
 
-      applyPostMarker(commentTarget, key, getPostTitle(card, key))
+      applyPostMarker(
+        commentTarget,
+        key,
+        getPostTitle(card, key),
+        getPostCover(card)
+      )
     }
   }
 
