@@ -4,9 +4,9 @@
 // @namespace            https://github.com/hanzhsun/utags-extension
 // @homepageURL          https://github.com/hanzhsun/utags-extension#readme
 // @supportURL           https://github.com/hanzhsun/utags-extension/issues
-// @version              0.1
-// @description          Add UTags to individual Threads posts from the Save button.
-// @description:zh-CN    通过 Threads 帖子的 Save 按钮添加 UTags 标签。
+// @version              0.1.1
+// @description          Add UTags to individual Threads posts from the Repost button.
+// @description:zh-CN    通过 Threads 帖子的 Repost 按钮添加 UTags 标签。
 // @author               hanzhsun
 // @license              MIT
 // @match                https://threads.com/*
@@ -24,9 +24,8 @@
   const POST_LINK_SELECTOR = 'a[href*="/post/"]'
   const POST_CONTAINER_SELECTOR =
     'article, [role="article"], [data-pressable-container="true"]'
-  const SAVE_CONTROL_SELECTOR = 'button, [role="button"], [tabindex="0"], [data-testid]'
-  const SAVE_LABEL_RE =
-    /(save|saved|bookmark|unsave|remove( from saved| bookmark)?|保存|已保存|收藏)/i
+  const CONTROL_SELECTOR = 'button, [role="button"], [tabindex="0"], [data-testid]'
+  const REPOST_LABEL_RE = /(repost|unrepost|转发|轉發)/i
 
   function getPostUrl(href) {
     try {
@@ -53,13 +52,12 @@
     return labels.filter(Boolean).join(' ').trim()
   }
 
-  function findSaveButton(container) {
-    for (const control of container.querySelectorAll(SAVE_CONTROL_SELECTOR)) {
-      if (SAVE_LABEL_RE.test(getControlLabel(control))) {
-        return control.matches('button, [role="button"], [tabindex="0"]')
-          ? control
-          : control.closest('button, [role="button"], [tabindex="0"]') || control
-      }
+  function findRepostButton(container) {
+    for (const control of container.querySelectorAll(CONTROL_SELECTOR)) {
+      if (!REPOST_LABEL_RE.test(getControlLabel(control))) continue
+      return control.matches('button, [role="button"], [tabindex="0"]')
+        ? control
+        : control.closest('button, [role="button"], [tabindex="0"]') || control
     }
     return null
   }
@@ -71,7 +69,7 @@
       container && depth < 4;
       depth++, container = container.parentElement
     ) {
-      if (findSaveButton(container)) return container
+      if (findRepostButton(container)) return container
     }
     return null
   }
@@ -98,6 +96,18 @@
     return `Threads post ${postUrl.match(/\/post\/([^/]+)/)?.[1] || ''}`.trim()
   }
 
+  function clearPostMarkers(container, keep) {
+    for (const old of container.querySelectorAll(
+      '[data-utags_type="post"][data-utags_link]'
+    )) {
+      if (old === keep) continue
+      delete old.dataset.utags_link
+      delete old.dataset.utags_title
+      delete old.dataset.utags_type
+      delete old.dataset.utags_cover
+    }
+  }
+
   function setPostData(button, container, postUrl) {
     delete button.dataset.utags_cover
     const values = {
@@ -122,11 +132,12 @@
 
       const container = findPostContainer(link)
       if (!container) continue
-      const saveButton = findSaveButton(container)
-      if (!saveButton || processed.has(saveButton)) continue
+      const repostButton = findRepostButton(container)
+      clearPostMarkers(container, repostButton)
+      if (!repostButton || processed.has(repostButton)) continue
 
-      processed.add(saveButton)
-      setPostData(saveButton, container, postUrl)
+      processed.add(repostButton)
+      setPostData(repostButton, container, postUrl)
     }
   }
 
@@ -135,6 +146,18 @@
     const style = document.createElement('style')
     style.id = 'utags-threads-post-style'
     style.textContent = `
+:not(#a):not(#b):not(#c) [data-utags_type="post"][data-utags_link]+.utags_ul_0,
+:not(#a):not(#b):not(#c) [data-utags_type="post"][data-utags_link]+.utags_ul_1 {
+  object-position: 200% 50%;
+  --utags-notag-ul-disply: var(--utags-notag-ul-disply-5);
+  --utags-notag-ul-height: var(--utags-notag-ul-height-5);
+  --utags-notag-ul-position: var(--utags-notag-ul-position-5);
+  --utags-notag-ul-top: var(--utags-notag-ul-top-5);
+  --utags-notag-captain-tag-top: 0px;
+  --utags-notag-captain-tag-left: -34px;
+  --utags-captain-tag-background-color: var(--utags-captain-tag-background-color-overlap);
+  z-index: 2;
+}
 :not(#a):not(#b):not(#c) article:hover [data-utags_type="post"][data-utags_link]+.utags_ul .utags_captain_tag,
 :not(#a):not(#b):not(#c) [role="article"]:hover [data-utags_type="post"][data-utags_link]+.utags_ul .utags_captain_tag,
 :not(#a):not(#b):not(#c) [data-utags_type="post"][data-utags_link]:hover+.utags_ul .utags_captain_tag {
